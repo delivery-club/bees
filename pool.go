@@ -1,0 +1,148 @@
+package bees
+
+import (
+	"context"
+	"log"
+	"math/rand"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+type Config struct {
+	MaxWorkersCount int64
+	IdleTimeout     time.Duration
+	TimeoutJitter   int // additional random timeout in ms
+}
+
+type WorkerPool struct {
+	activeWorkers   *int64
+	freeWorkers     *int64
+	workersCapacity int64
+
+	process TaskProcessor
+	taskCh  chan interface{}
+
+	cfg         *Config
+	shutdownCtx context.Context
+	cancelFunc  context.CancelFunc
+	wg          *sync.WaitGroup
+
+	logger logger
+}
+
+type logger interface {
+	Printf(format string, args ...interface{})
+}
+
+type TaskProcessor func(ctx context.Context, task interface{})
+
+func Create(ctx context.Context, config *Config, processor TaskProcessor) *WorkerPool {
+	if config.TimeoutJitter <= 0 {
+		config.TimeoutJitter = 1
+	}
+
+	if config.IdleTimeout <= 0 {
+		config.IdleTimeout = time.Second
+	}
+
+	if config.MaxWorkersCount <= 0 {
+		config.MaxWorkersCount = 1
+	}
+	ctx, cancel := context.WithCancel(ctx)
+
+	return &WorkerPool{
+		activeWorkers:   PtrOfInt64(0),
+		freeWorkers:     PtrOfInt64(0),
+		workersCapacity: config.MaxWorkersCount,
+		process:         processor,
+		taskCh:          make(chan interface{}, 2*config.MaxWorkersCount),
+		cfg:             config,
+		shutdownCtx:     ctx,
+		cancelFunc:      cancel,
+		wg:              &sync.WaitGroup{},
+		logger:          log.Default(),
+	}
+}
+
+func (wp *WorkerPool) SetLogger(logger logger) {
+	wp.logger = logger
+}
+
+func (wp *WorkerPool) Submit(task interface{}) {
+	wp.retrieveWorker()
+	select {
+	case wp.taskCh <- task:
+	case <-wp.shutdownCtx.Done():
+	}
+}
+
+func (wp *WorkerPool) retrieveWorker() {
+	if free := atomic.LoadInt64(wp.freeWorkers); free > 1 {
+		return
+	}
+
+	for i := 0; i < 3; i++ {
+		if c := atomic.LoadInt64(wp.activeWorkers); c < wp.workersCapacity {
+			if atomic.CompareAndSwapInt64(wp.activeWorkers, c, c+1) {
+				wp.spawnWorker()
+				return
+			}
+			continue
+		}
+		break
+	}
+}
+
+func (wp *WorkerPool) spawnWorker() {
+	atomic.AddInt64(wp.freeWorkers, 1)
+	wp.wg.Add(1)
+
+	go func() {
+		// https://en.wikipedia.org/wiki/Exponential_backoff
+		// nolint:gosec
+		jitter := time.Millisecond * time.Duration(rand.Intn(wp.cfg.TimeoutJitter))
+		ticker := time.NewTicker(wp.cfg.IdleTimeout + jitter)
+		defer ticker.Stop()
+
+		defer func() {
+			atomic.AddInt64(wp.freeWorkers, -1)
+			atomic.AddInt64(wp.activeWorkers, -1)
+			wp.wg.Done()
+			if err := recover(); err != nil {
+				atomic.AddInt64(wp.freeWorkers, 1)
+
+				if wp.workersCapacity == 1 {
+					go wp.retrieveWorker()
+				}
+
+				wp.logger.Printf("on WorkerPool: on Process: %+v", err)
+				return
+			}
+		}()
+
+		for {
+			select {
+			case task := <-wp.taskCh:
+				atomic.AddInt64(wp.freeWorkers, -1)
+				wp.process(wp.shutdownCtx, task)
+				atomic.AddInt64(wp.freeWorkers, 1)
+			case <-wp.shutdownCtx.Done():
+				return
+			case <-ticker.C:
+				return
+			}
+			ticker.Reset(wp.cfg.IdleTimeout)
+		}
+	}()
+}
+
+//nolint:unparam
+func (wp *WorkerPool) Close() {
+	wp.cancelFunc()
+	wp.wg.Wait()
+}
+
+func PtrOfInt64(i int64) *int64 {
+	return &i
+}
