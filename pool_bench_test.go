@@ -17,7 +17,7 @@ const (
 const (
 	poolSize  = 200000
 	timeParam = 10
-	runTimes  = 1000000
+	runTimes  = 10000000
 )
 
 func BenchmarkSemaphore(b *testing.B) {

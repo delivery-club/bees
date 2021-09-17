@@ -82,15 +82,10 @@ func (wp *WorkerPool) retrieveWorker() {
 		return
 	}
 
-	for i := 0; i < 3; i++ {
-		if c := atomic.LoadInt64(wp.activeWorkers); c < wp.workersCapacity {
-			if atomic.CompareAndSwapInt64(wp.activeWorkers, c, c+1) {
-				wp.spawnWorker()
-				return
-			}
-			continue
+	if c := atomic.LoadInt64(wp.activeWorkers); c < wp.workersCapacity {
+		if atomic.CompareAndSwapInt64(wp.activeWorkers, c, c+1) {
+			wp.spawnWorker()
 		}
-		break
 	}
 }
 
