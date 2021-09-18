@@ -69,7 +69,14 @@ func (wp *WorkerPool) SetLogger(logger logger) {
 	wp.logger = logger
 }
 
+// Submit - submit task to pool
 func (wp *WorkerPool) Submit(task interface{}) {
+	wp.retrieveWorker()
+	wp.taskCh <- task
+}
+
+// SubmitAsync - submit task to pool, may call async
+func (wp *WorkerPool) SubmitAsync(task interface{}) {
 	wp.retrieveWorker()
 	select {
 	case wp.taskCh <- task:

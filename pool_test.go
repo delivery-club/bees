@@ -67,7 +67,7 @@ func TestPoolShutdownWithStackedWorker(t *testing.T) {
 	// создаем пробку
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
-		go func() { pool.Submit(task); wg.Done() }()
+		go func() { pool.SubmitAsync(task); wg.Done() }()
 	}
 
 	// ждем расхождения пробки
