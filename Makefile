@@ -4,4 +4,4 @@ lint:
 
 test:
 	@echo "Running tests..."
-	@go test ./internal/... -cover -short -count=1
+	@go test ./... -cover -short -count=1
