@@ -9,12 +9,14 @@ import (
 	"time"
 )
 
+// Config - configuration struct for WorkerPool used only in Create method
 type Config struct {
 	MaxWorkersCount int64
 	IdleTimeout     time.Duration
 	TimeoutJitter   int // additional random timeout in ms
 }
 
+// WorkerPool - keep information about active/free workers and task processing
 type WorkerPool struct {
 	activeWorkers   *int64
 	freeWorkers     *int64
@@ -35,8 +37,10 @@ type logger interface {
 	Printf(format string, args ...interface{})
 }
 
+// TaskProcessor - closure type for processing tasks
 type TaskProcessor func(ctx context.Context, task interface{})
 
+// Create - create worker pool instance
 func Create(ctx context.Context, config *Config, processor TaskProcessor) *WorkerPool {
 	if config.TimeoutJitter <= 0 {
 		config.TimeoutJitter = 1
@@ -65,6 +69,7 @@ func Create(ctx context.Context, config *Config, processor TaskProcessor) *Worke
 	}
 }
 
+// SetLogger - sets logger for pool
 func (wp *WorkerPool) SetLogger(logger logger) {
 	wp.logger = logger
 }
@@ -139,7 +144,7 @@ func (wp *WorkerPool) spawnWorker() {
 	}()
 }
 
-//nolint:unparam
+// Close - close worker pool and release all resources, not processed tasks will be throw away
 func (wp *WorkerPool) Close() {
 	wp.cancelFunc()
 	wp.wg.Wait()
