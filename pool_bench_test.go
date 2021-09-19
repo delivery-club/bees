@@ -15,7 +15,7 @@ const (
 )
 
 const (
-	poolSize  = 200000
+	poolSize  = 500000
 	timeParam = 10
 	runTimes  = 10000000
 )
