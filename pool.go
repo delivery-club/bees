@@ -56,8 +56,8 @@ func Create(ctx context.Context, config *Config, processor TaskProcessor) *Worke
 	ctx, cancel := context.WithCancel(ctx)
 
 	return &WorkerPool{
-		activeWorkers:   PtrOfInt64(0),
-		freeWorkers:     PtrOfInt64(0),
+		activeWorkers:   ptrOfInt64(0),
+		freeWorkers:     ptrOfInt64(0),
 		workersCapacity: config.MaxWorkersCount,
 		process:         processor,
 		taskCh:          make(chan interface{}, 2*config.MaxWorkersCount),
@@ -150,6 +150,6 @@ func (wp *WorkerPool) Close() {
 	wp.wg.Wait()
 }
 
-func PtrOfInt64(i int64) *int64 {
+func ptrOfInt64(i int64) *int64 {
 	return &i
 }
