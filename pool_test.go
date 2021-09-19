@@ -8,44 +8,42 @@ import (
 	"time"
 )
 
-func TestPoolSpawnWorker(t *testing.T) {
+const task = 1
+
+func TestWorkerPool_Close(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	pool := Create(ctx, &Config{
+	defer func() {
+		if err := recover(); err != nil {
+			t.Fatalf("uncatched panic: %+v", err)
+		}
+	}()
+
+	pool := Create(context.Background(), &Config{
 		MaxWorkersCount: 3,
 		IdleTimeout:     50 * time.Second,
 		TimeoutJitter:   1,
 	}, func(ctx context.Context, i interface{}) {})
 	pool.SetLogger(log.Default())
 
-	var wg sync.WaitGroup
-
-	count := 10
-	wg.Add(count)
-
-	for i := 0; i < count; i++ {
-		go func() {
-			pool.retrieveWorker()
-			wg.Done()
-		}()
+	for i := 0; i < 100; i++ {
+		go pool.Submit(task)
+		go pool.SubmitAsync(task)
 	}
-	wg.Wait()
 
-	cancel()
 	pool.Close()
-	time.Sleep(100 * time.Millisecond)
-
-	if *pool.activeWorkers != 0 {
-		t.Fatalf("active workers not zero")
-	}
 }
 
-func TestPoolShutdownWithStackedWorker(t *testing.T) {
+func TestWorkerPool_ShutdownWithStacked(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	pool := Create(ctx, &Config{
+	defer func() {
+		if err := recover(); err != nil {
+			t.Fatalf("uncatched panic: %+v", err)
+		}
+	}()
+
+	pool := Create(context.Background(), &Config{
 		MaxWorkersCount: 1,
 		IdleTimeout:     time.Hour,
 	}, func(ctx context.Context, i interface{}) {
@@ -55,26 +53,18 @@ func TestPoolShutdownWithStackedWorker(t *testing.T) {
 		}
 	})
 
-	var task interface{}
-
-	pool.Submit(task)
-
 	var wg sync.WaitGroup
-
-	// заполняем пул заданий
-	pool.Submit(task)
-
-	// создаем пробку
-	for i := 0; i < 10; i++ {
+	// fill up worker pool by tasks
+	for i := 0; i < 100; i++ {
 		wg.Add(1)
-		go func() { pool.SubmitAsync(task); wg.Done() }()
+		go func() {
+			defer wg.Done()
+			pool.SubmitAsync(task)
+		}()
 	}
 
-	// ждем расхождения пробки
-	cancel()
-	wg.Wait()
-
 	pool.Close()
+	wg.Wait()
 }
 
 func TestPoolDefaultValues(t *testing.T) {
@@ -82,7 +72,7 @@ func TestPoolDefaultValues(t *testing.T) {
 
 	defer func() {
 		if err := recover(); err != nil {
-			t.Fatalf("uncatched panic")
+			t.Fatalf("uncatched panic: %+v", err)
 		}
 	}()
 
@@ -102,7 +92,7 @@ func TestPoolRecoverAfterPanicOnSingleWorker(t *testing.T) {
 
 	defer func() {
 		if err := recover(); err != nil {
-			t.Fatalf("uncatched panic")
+			t.Fatalf("uncatched panic: %+v", err)
 		}
 	}()
 
@@ -111,22 +101,37 @@ func TestPoolRecoverAfterPanicOnSingleWorker(t *testing.T) {
 		MaxWorkersCount: 1,
 		IdleTimeout:     time.Hour,
 		TimeoutJitter:   10,
-	}, func(ctx context.Context, i interface{}) { wg.Done(); panic("aaaaaa") })
-
-	var task interface{}
+	}, func(ctx context.Context, i interface{}) {
+		defer wg.Done()
+		panic("aaaaaa")
+	})
 
 	wg.Add(1)
 	pool.Submit(task)
 	wg.Wait()
 }
 
-func TestPoolExpiration(t *testing.T) {
+func TestWorkerExpiration(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		if err := recover(); err != nil {
+			t.Fatalf("uncatched panic: %+v", err)
+		}
+	}()
+
 	pool := Create(context.Background(), &Config{
 		MaxWorkersCount: 1,
-		IdleTimeout:     time.Nanosecond,
+		IdleTimeout:     10 * time.Millisecond,
 		TimeoutJitter:   1,
 	}, func(ctx context.Context, i interface{}) {})
 
-	pool.Submit(1)
-	pool.wg.Wait()
+	for i := 0; i < 100; i++ {
+		pool.Submit(task)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	if *pool.activeWorkers != 0 || *pool.freeWorkers != 0 {
+		t.Fatalf("active workers found")
+	}
 }

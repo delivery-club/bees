@@ -10,14 +10,14 @@ import (
 
 const (
 	_ = 1 << (10 * iota)
-	KiB
+	_
 	MiB
 )
 
 const (
-	poolSize  = 500000
-	timeParam = 10
-	runTimes  = 10000000
+	poolSize = 500000
+	sleep    = 10
+	runTimes = 10000000
 )
 
 func BenchmarkSemaphore(b *testing.B) {
@@ -63,8 +63,7 @@ func BenchmarkGoroutines(b *testing.B) {
 func BenchmarkWorkerPool(b *testing.B) {
 	var wg sync.WaitGroup
 
-	ctx, cancel := context.WithCancel(context.Background())
-	p := Create(ctx, &Config{
+	p := Create(context.Background(), &Config{
 		MaxWorkersCount: poolSize,
 		IdleTimeout:     5 * time.Second,
 		TimeoutJitter:   0,
@@ -73,7 +72,6 @@ func BenchmarkWorkerPool(b *testing.B) {
 		wg.Done()
 	})
 	defer func() {
-		cancel()
 		p.Close()
 	}()
 	var task interface{}
@@ -100,5 +98,5 @@ func checkMem() uint64 {
 }
 
 func demoFunc() {
-	time.Sleep(time.Duration(timeParam) * time.Millisecond)
+	time.Sleep(time.Duration(sleep) * time.Millisecond)
 }

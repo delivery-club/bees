@@ -29,6 +29,7 @@ type WorkerPool struct {
 	shutdownCtx context.Context
 	cancelFunc  context.CancelFunc
 	wg          *sync.WaitGroup
+	isClosed    int32
 
 	logger logger
 }
@@ -76,12 +77,20 @@ func (wp *WorkerPool) SetLogger(logger logger) {
 
 // Submit - submit task to pool
 func (wp *WorkerPool) Submit(task interface{}) {
+	if wp.isClosed == 1 {
+		return
+	}
+
 	wp.retrieveWorker()
 	wp.taskCh <- task
 }
 
-// SubmitAsync - submit task to pool, may call async
+// SubmitAsync - submit task to pool, for async better use this method
 func (wp *WorkerPool) SubmitAsync(task interface{}) {
+	if wp.isClosed == 1 {
+		return
+	}
+
 	wp.retrieveWorker()
 	select {
 	case wp.taskCh <- task:
@@ -109,7 +118,9 @@ func (wp *WorkerPool) spawnWorker() {
 		// https://en.wikipedia.org/wiki/Exponential_backoff
 		// nolint:gosec
 		jitter := time.Millisecond * time.Duration(rand.Intn(wp.cfg.TimeoutJitter))
-		ticker := time.NewTicker(wp.cfg.IdleTimeout + jitter)
+		timeout := wp.cfg.IdleTimeout + jitter
+
+		ticker := time.NewTicker(timeout)
 		defer ticker.Stop()
 
 		defer func() {
@@ -139,13 +150,14 @@ func (wp *WorkerPool) spawnWorker() {
 			case <-ticker.C:
 				return
 			}
-			ticker.Reset(wp.cfg.IdleTimeout)
+			ticker.Reset(timeout)
 		}
 	}()
 }
 
-// Close - close worker pool and release all resources, not processed tasks will be throw away
+// Close - close worker pool and release all resources, not processed tasks will be thrown away
 func (wp *WorkerPool) Close() {
+	atomic.StoreInt32(&wp.isClosed, 1)
 	wp.cancelFunc()
 	wp.wg.Wait()
 }
