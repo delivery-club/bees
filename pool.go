@@ -9,13 +9,6 @@ import (
 	"time"
 )
 
-// Config - configuration struct for WorkerPool used only in Create method
-type Config struct {
-	MaxWorkersCount int64
-	IdleTimeout     time.Duration
-	TimeoutJitter   int // additional random timeout in ms
-}
-
 // WorkerPool - keep information about active/free workers and task processing
 type WorkerPool struct {
 	activeWorkers   *int64
@@ -25,7 +18,7 @@ type WorkerPool struct {
 	process TaskProcessor
 	taskCh  chan interface{}
 
-	cfg         *Config
+	cfg         config
 	shutdownCtx context.Context
 	cancelFunc  context.CancelFunc
 	wg          *sync.WaitGroup
@@ -34,34 +27,37 @@ type WorkerPool struct {
 	logger logger
 }
 
-type logger interface {
-	Printf(format string, args ...interface{})
-}
-
-// TaskProcessor - closure type for processing tasks
-type TaskProcessor func(ctx context.Context, task interface{})
-
 // Create - create worker pool instance
-func Create(ctx context.Context, config *Config, processor TaskProcessor) *WorkerPool {
+func Create(ctx context.Context, processor TaskProcessor, opts ...Option) *WorkerPool {
+	var config = config{
+		Capacity:         1,
+		TimeoutJitter:    1000,
+		KeepAliveTimeout: time.Minute,
+	}
+
+	for _, opt := range opts {
+		opt.apply(&config)
+	}
+
 	if config.TimeoutJitter <= 0 {
 		config.TimeoutJitter = 1
 	}
 
-	if config.IdleTimeout <= 0 {
-		config.IdleTimeout = time.Second
+	if config.KeepAliveTimeout <= 0 {
+		config.KeepAliveTimeout = time.Second
 	}
 
-	if config.MaxWorkersCount <= 0 {
-		config.MaxWorkersCount = 1
+	if config.Capacity <= 0 {
+		config.Capacity = 1
 	}
 	ctx, cancel := context.WithCancel(ctx)
 
 	return &WorkerPool{
 		activeWorkers:   ptrOfInt64(0),
 		freeWorkers:     ptrOfInt64(0),
-		workersCapacity: config.MaxWorkersCount,
+		workersCapacity: config.Capacity,
 		process:         processor,
-		taskCh:          make(chan interface{}, 2*config.MaxWorkersCount),
+		taskCh:          make(chan interface{}, 2*config.Capacity),
 		cfg:             config,
 		shutdownCtx:     ctx,
 		cancelFunc:      cancel,
@@ -118,7 +114,7 @@ func (wp *WorkerPool) spawnWorker() {
 		// https://en.wikipedia.org/wiki/Exponential_backoff
 		// nolint:gosec
 		jitter := time.Millisecond * time.Duration(rand.Intn(wp.cfg.TimeoutJitter))
-		timeout := wp.cfg.IdleTimeout + jitter
+		timeout := wp.cfg.KeepAliveTimeout + jitter
 
 		ticker := time.NewTicker(timeout)
 		defer ticker.Stop()

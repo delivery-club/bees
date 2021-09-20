@@ -63,14 +63,10 @@ func BenchmarkGoroutines(b *testing.B) {
 func BenchmarkWorkerPool(b *testing.B) {
 	var wg sync.WaitGroup
 
-	p := Create(context.Background(), &Config{
-		MaxWorkersCount: poolSize,
-		IdleTimeout:     5 * time.Second,
-		TimeoutJitter:   0,
-	}, func(ctx context.Context, task interface{}) {
+	p := Create(context.Background(), func(ctx context.Context, task interface{}) {
 		demoFunc()
 		wg.Done()
-	})
+	}, WithCapacity(poolSize), WithKeepAlive(5*time.Second))
 	defer func() {
 		p.Close()
 	}()

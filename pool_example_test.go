@@ -6,12 +6,11 @@ import (
 	"time"
 )
 
+// Example - demonstrate pool usage
 func Example() {
-	pool := Create(context.Background(), &Config{
-		MaxWorkersCount: 1,
-		IdleTimeout:     time.Minute,
-		TimeoutJitter:   1,
-	}, func(ctx context.Context, task interface{}) { fmt.Println(task) })
+	pool := Create(context.Background(), func(ctx context.Context, task interface{}) { fmt.Println(task) },
+		WithCapacity(1), WithKeepAlive(time.Minute), WithoutJitter,
+	)
 	defer pool.Close()
 
 	pool.Submit(1)

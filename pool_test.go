@@ -19,11 +19,8 @@ func TestWorkerPool_Close(t *testing.T) {
 		}
 	}()
 
-	pool := Create(context.Background(), &Config{
-		MaxWorkersCount: 3,
-		IdleTimeout:     50 * time.Second,
-		TimeoutJitter:   1,
-	}, func(ctx context.Context, i interface{}) {})
+	pool := Create(context.Background(), func(ctx context.Context, i interface{}) {},
+		WithCapacity(3), WithKeepAlive(50*time.Second), WithJitter(1))
 	pool.SetLogger(log.Default())
 
 	for i := 0; i < 100; i++ {
@@ -43,15 +40,12 @@ func TestWorkerPool_ShutdownWithStacked(t *testing.T) {
 		}
 	}()
 
-	pool := Create(context.Background(), &Config{
-		MaxWorkersCount: 1,
-		IdleTimeout:     time.Hour,
-	}, func(ctx context.Context, i interface{}) {
+	pool := Create(context.Background(), func(ctx context.Context, i interface{}) {
 		select {
 		case <-time.After(time.Hour):
 		case <-ctx.Done():
 		}
-	})
+	}, WithCapacity(1), WithKeepAlive(time.Hour))
 
 	var wg sync.WaitGroup
 	// fill up worker pool by tasks
@@ -76,13 +70,10 @@ func TestPoolDefaultValues(t *testing.T) {
 		}
 	}()
 
-	pool := Create(context.Background(), &Config{
-		MaxWorkersCount: 0,
-		IdleTimeout:     0,
-		TimeoutJitter:   0,
-	}, func(ctx context.Context, i interface{}) {})
+	pool := Create(context.Background(), func(ctx context.Context, i interface{}) {},
+		WithKeepAlive(0), WithJitter(0), WithCapacity(0))
 
-	if pool.cfg.IdleTimeout == 0 || pool.cfg.TimeoutJitter == 0 || pool.cfg.MaxWorkersCount == 0 {
+	if pool.cfg.KeepAliveTimeout == 0 || pool.cfg.TimeoutJitter == 0 || pool.cfg.Capacity == 0 {
 		t.Fail()
 	}
 }
@@ -97,14 +88,10 @@ func TestPoolRecoverAfterPanicOnSingleWorker(t *testing.T) {
 	}()
 
 	var wg sync.WaitGroup
-	pool := Create(context.Background(), &Config{
-		MaxWorkersCount: 1,
-		IdleTimeout:     time.Hour,
-		TimeoutJitter:   10,
-	}, func(ctx context.Context, i interface{}) {
+	pool := Create(context.Background(), func(ctx context.Context, i interface{}) {
 		defer wg.Done()
 		panic("aaaaaa")
-	})
+	}, WithKeepAlive(time.Hour), WithJitter(10), WithCapacity(1))
 
 	wg.Add(1)
 	pool.Submit(task)
@@ -120,11 +107,9 @@ func TestWorkerExpiration(t *testing.T) {
 		}
 	}()
 
-	pool := Create(context.Background(), &Config{
-		MaxWorkersCount: 1,
-		IdleTimeout:     10 * time.Millisecond,
-		TimeoutJitter:   1,
-	}, func(ctx context.Context, i interface{}) {})
+	pool := Create(context.Background(), func(ctx context.Context, i interface{}) {},
+		WithKeepAlive(10*time.Millisecond), WithJitter(1), WithCapacity(1),
+	)
 
 	for i := 0; i < 100; i++ {
 		pool.Submit(task)
