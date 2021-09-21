@@ -27,13 +27,12 @@ Bees - simple and lightweight worker pool for go.
 ## Examples:
 
 ```go
-
+// Example - demonstrate pool usage
 func Example() {
-    pool := Create(context.Background(), &Config{
-        MaxWorkersCount: 1,
-        IdleTimeout:     time.Minute,
-        TimeoutJitter:   1,
-    }, func (ctx context.Context, task interface{}) { fmt.Println(task) })
+    pool := Create(context.Background(),
+        func(ctx context.Context, task interface{}) { fmt.Println(task) },
+    )
+
     defer pool.Close()
 
     pool.Submit(1)
