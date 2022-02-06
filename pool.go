@@ -82,6 +82,7 @@ func (wp *WorkerPool) Submit(task interface{}) {
 
 	wp.retrieveWorker()
 	wp.taskCh <- task
+	atomic.AddInt64(wp.taskCount, 1)
 }
 
 // SubmitAsync - submit task to pool, for async better use this method
@@ -93,6 +94,7 @@ func (wp *WorkerPool) SubmitAsync(task interface{}) {
 	wp.retrieveWorker()
 	select {
 	case wp.taskCh <- task:
+		atomic.AddInt64(wp.taskCount, 1)
 	case <-wp.shutdownCtx.Done():
 	}
 }
@@ -139,6 +141,7 @@ func (wp *WorkerPool) spawnWorker() {
 		defer func() {
 			atomic.AddInt64(wp.freeWorkers, -1)
 			atomic.AddInt64(wp.activeWorkers, -1)
+			atomic.AddInt64(wp.taskCount, -1)
 			wp.wg.Done()
 			if err := recover(); err != nil {
 				atomic.AddInt64(wp.freeWorkers, 1)
