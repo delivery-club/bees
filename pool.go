@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"math/rand"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +14,7 @@ import (
 type WorkerPool struct {
 	activeWorkers   *int64
 	freeWorkers     *int64
+	taskCount       *int64
 	workersCapacity int64
 
 	process TaskProcessor
@@ -55,6 +57,7 @@ func Create(ctx context.Context, processor TaskProcessor, opts ...Option) *Worke
 	return &WorkerPool{
 		activeWorkers:   ptrOfInt64(0),
 		freeWorkers:     ptrOfInt64(0),
+		taskCount:       ptrOfInt64(0),
 		workersCapacity: config.Capacity,
 		process:         processor,
 		taskCh:          make(chan interface{}, 2*config.Capacity),
@@ -91,6 +94,20 @@ func (wp *WorkerPool) SubmitAsync(task interface{}) {
 	select {
 	case wp.taskCh <- task:
 	case <-wp.shutdownCtx.Done():
+	}
+}
+
+func (wp *WorkerPool) Wait() {
+	const maxBackoff = 16
+	backoff := 1
+
+	for atomic.LoadInt64(wp.taskCount) != 0 {
+		for i := 0; i < backoff; i++ {
+			runtime.Gosched()
+		}
+		if backoff < maxBackoff {
+			backoff <<= 1
+		}
 	}
 }
 
