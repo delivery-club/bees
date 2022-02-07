@@ -156,3 +156,50 @@ func TestWait(t *testing.T) {
 		t.Fatalf("counter not equal: expected: %d, actual: %d", testCount, actualCounter)
 	}
 }
+
+func TestOnPanic(t *testing.T) {
+	t.Parallel()
+	const testCount = 1000
+
+	pool := Create(
+		context.Background(),
+		func(ctx context.Context, i interface{}) { time.Sleep(time.Second); panic("foo") },
+		WithJitter(1),
+		WithCapacity(testCount),
+	)
+
+	stopper := ptrOfInt64(0)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		for atomic.LoadInt64(stopper) == 0 {
+			runtime.Gosched()
+		}
+		for i := 0; i < testCount; i++ {
+			pool.Submit(task)
+		}
+		wg.Done()
+	}()
+	atomic.AddInt64(stopper, 1)
+
+	wg.Wait()
+	pool.Wait()
+
+	if *pool.taskCount != 0 || len(pool.taskCh) != 0 {
+		t.Fatalf("unconsistent task count: taskCount: %d, channel len: %d", *pool.taskCount, len(pool.taskCh))
+	}
+
+	pool.Close()
+
+	if *pool.activeWorkers != 0 {
+		t.Fatalf("unconsistent active workers count: expected zero, actual: %d", *pool.activeWorkers)
+	}
+
+	if *pool.freeWorkers != 0 {
+		t.Fatalf("unconsistent free workers count: expected zero, actual: %d", *pool.freeWorkers)
+	}
+
+	if pool.isClosed != 1 {
+		t.Fatalf("isClosed must be one")
+	}
+}
