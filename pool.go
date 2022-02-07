@@ -139,6 +139,8 @@ func (wp *WorkerPool) spawnWorker() {
 			atomic.AddInt64(wp.activeWorkers, -1)
 			wp.wg.Done()
 			if err := recover(); err != nil {
+				atomic.AddInt64(wp.freeWorkers, 1)
+				atomic.AddInt64(wp.taskCount, -1)
 				if atomic.LoadInt64(wp.activeWorkers) == 0 {
 					go wp.retrieveWorker()
 				}
