@@ -3,7 +3,9 @@ package bees
 import (
 	"context"
 	"log"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -118,5 +120,39 @@ func TestWorkerExpiration(t *testing.T) {
 
 	if *pool.activeWorkers != 0 || *pool.freeWorkers != 0 {
 		t.Fatalf("active workers found")
+	}
+}
+
+func TestWait(t *testing.T) {
+	t.Parallel()
+	const testCount = 1000
+
+	counter := ptrOfInt64(0)
+	pool := Create(
+		context.Background(),
+		func(ctx context.Context, i interface{}) { time.Sleep(time.Second); atomic.AddInt64(counter, 1) },
+		WithJitter(1),
+		WithCapacity(testCount),
+	)
+
+	stopper := ptrOfInt64(0)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		for atomic.LoadInt64(stopper) == 0 {
+			runtime.Gosched()
+		}
+		for i := 0; i < testCount; i++ {
+			pool.Submit(task)
+		}
+		wg.Done()
+	}()
+	atomic.AddInt64(stopper, 1)
+
+	wg.Wait()
+	pool.Wait()
+
+	if actualCounter := atomic.LoadInt64(counter); actualCounter != testCount {
+		t.Fatalf("counter not equal: expected: %d, actual: %d", testCount, actualCounter)
 	}
 }

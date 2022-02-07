@@ -114,10 +114,6 @@ func (wp *WorkerPool) Wait() {
 }
 
 func (wp *WorkerPool) retrieveWorker() {
-	if free := atomic.LoadInt64(wp.freeWorkers); free > 1 {
-		return
-	}
-
 	if c := atomic.LoadInt64(wp.activeWorkers); c < wp.workersCapacity {
 		if atomic.CompareAndSwapInt64(wp.activeWorkers, c, c+1) {
 			wp.spawnWorker()
@@ -141,12 +137,9 @@ func (wp *WorkerPool) spawnWorker() {
 		defer func() {
 			atomic.AddInt64(wp.freeWorkers, -1)
 			atomic.AddInt64(wp.activeWorkers, -1)
-			atomic.AddInt64(wp.taskCount, -1)
 			wp.wg.Done()
 			if err := recover(); err != nil {
-				atomic.AddInt64(wp.freeWorkers, 1)
-
-				if wp.workersCapacity == 1 {
+				if atomic.LoadInt64(wp.activeWorkers) == 0 {
 					go wp.retrieveWorker()
 				}
 
@@ -161,6 +154,7 @@ func (wp *WorkerPool) spawnWorker() {
 				atomic.AddInt64(wp.freeWorkers, -1)
 				wp.process(wp.shutdownCtx, task)
 				atomic.AddInt64(wp.freeWorkers, 1)
+				atomic.AddInt64(wp.taskCount, -1)
 			case <-wp.shutdownCtx.Done():
 				return
 			case <-ticker.C:
