@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"math/rand"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +14,7 @@ import (
 type WorkerPool struct {
 	activeWorkers   *int64
 	freeWorkers     *int64
+	taskCount       *int64
 	workersCapacity int64
 
 	process TaskProcessor
@@ -55,6 +57,7 @@ func Create(ctx context.Context, processor TaskProcessor, opts ...Option) *Worke
 	return &WorkerPool{
 		activeWorkers:   ptrOfInt64(0),
 		freeWorkers:     ptrOfInt64(0),
+		taskCount:       ptrOfInt64(0),
 		workersCapacity: config.Capacity,
 		process:         processor,
 		taskCh:          make(chan interface{}, 2*config.Capacity),
@@ -79,6 +82,7 @@ func (wp *WorkerPool) Submit(task interface{}) {
 
 	wp.retrieveWorker()
 	wp.taskCh <- task
+	atomic.AddInt64(wp.taskCount, 1)
 }
 
 // SubmitAsync - submit task to pool, for async better use this method
@@ -90,15 +94,26 @@ func (wp *WorkerPool) SubmitAsync(task interface{}) {
 	wp.retrieveWorker()
 	select {
 	case wp.taskCh <- task:
+		atomic.AddInt64(wp.taskCount, 1)
 	case <-wp.shutdownCtx.Done():
 	}
 }
 
-func (wp *WorkerPool) retrieveWorker() {
-	if free := atomic.LoadInt64(wp.freeWorkers); free > 1 {
-		return
-	}
+func (wp *WorkerPool) Wait() {
+	const maxBackoff = 16
+	backoff := 1
 
+	for atomic.LoadInt64(wp.taskCount) != 0 {
+		for i := 0; i < backoff; i++ {
+			runtime.Gosched()
+		}
+		if backoff < maxBackoff {
+			backoff <<= 1
+		}
+	}
+}
+
+func (wp *WorkerPool) retrieveWorker() {
 	if c := atomic.LoadInt64(wp.activeWorkers); c < wp.workersCapacity {
 		if atomic.CompareAndSwapInt64(wp.activeWorkers, c, c+1) {
 			wp.spawnWorker()
@@ -125,8 +140,8 @@ func (wp *WorkerPool) spawnWorker() {
 			wp.wg.Done()
 			if err := recover(); err != nil {
 				atomic.AddInt64(wp.freeWorkers, 1)
-
-				if wp.workersCapacity == 1 {
+				atomic.AddInt64(wp.taskCount, -1)
+				if atomic.LoadInt64(wp.activeWorkers) == 0 {
 					go wp.retrieveWorker()
 				}
 
@@ -141,6 +156,7 @@ func (wp *WorkerPool) spawnWorker() {
 				atomic.AddInt64(wp.freeWorkers, -1)
 				wp.process(wp.shutdownCtx, task)
 				atomic.AddInt64(wp.freeWorkers, 1)
+				atomic.AddInt64(wp.taskCount, -1)
 			case <-wp.shutdownCtx.Done():
 				return
 			case <-ticker.C:
