@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"math/rand"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -105,7 +104,7 @@ func (wp *WorkerPool) Wait() {
 
 	for atomic.LoadInt64(wp.taskCount) != 0 {
 		for i := 0; i < backoff; i++ {
-			runtime.Gosched()
+			time.Sleep(time.Duration(backoff) * time.Microsecond)
 		}
 		if backoff < maxBackoff {
 			backoff <<= 1
