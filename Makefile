@@ -9,4 +9,5 @@ test:
 ci-lint: install-linter lint
 
 install-linter:
-	@go install  github.com/quasilyte/go-ruleguard/cmd/ruleguard@cb19258d2ade88dbf466420bb4585dc747bcec57
+	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
