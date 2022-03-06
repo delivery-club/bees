@@ -19,12 +19,11 @@ type WorkerPool struct {
 	process TaskProcessor
 	taskCh  chan interface{}
 
-	cfg             config
-	shutdownCtx     context.Context
-	cancelFunc      context.CancelFunc
-	wg              *sync.WaitGroup
-	isClosed        int32
-	gracefulTimeout time.Duration
+	cfg         *config
+	shutdownCtx context.Context
+	cancelFunc  context.CancelFunc
+	wg          *sync.WaitGroup
+	isClosed    int32
 
 	logger logger
 }
@@ -62,7 +61,7 @@ func Create(ctx context.Context, processor TaskProcessor, opts ...Option) *Worke
 		workersCapacity: config.Capacity,
 		process:         processor,
 		taskCh:          make(chan interface{}, 2*config.Capacity),
-		cfg:             config,
+		cfg:             &config,
 		shutdownCtx:     ctx,
 		cancelFunc:      cancel,
 		wg:              &sync.WaitGroup{},
@@ -186,7 +185,7 @@ func (wp *WorkerPool) CloseGracefully() {
 
 	select {
 	case <-closed:
-	case <-time.After(wp.gracefulTimeout):
+	case <-time.After(wp.cfg.GracefulTimeout):
 	}
 
 	wp.cancelFunc()
