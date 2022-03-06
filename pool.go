@@ -19,7 +19,7 @@ type WorkerPool struct {
 	process TaskProcessor
 	taskCh  chan interface{}
 
-	cfg         config
+	cfg         *config
 	shutdownCtx context.Context
 	cancelFunc  context.CancelFunc
 	wg          *sync.WaitGroup
@@ -34,6 +34,7 @@ func Create(ctx context.Context, processor TaskProcessor, opts ...Option) *Worke
 		Capacity:         1,
 		TimeoutJitter:    1000,
 		KeepAliveTimeout: time.Minute,
+		GracefulTimeout:  time.Minute,
 	}
 
 	for _, opt := range opts {
@@ -60,7 +61,7 @@ func Create(ctx context.Context, processor TaskProcessor, opts ...Option) *Worke
 		workersCapacity: config.Capacity,
 		process:         processor,
 		taskCh:          make(chan interface{}, 2*config.Capacity),
-		cfg:             config,
+		cfg:             &config,
 		shutdownCtx:     ctx,
 		cancelFunc:      cancel,
 		wg:              &sync.WaitGroup{},
@@ -169,6 +170,24 @@ func (wp *WorkerPool) spawnWorker() {
 // Close - close worker pool and release all resources, not processed tasks will be thrown away
 func (wp *WorkerPool) Close() {
 	atomic.StoreInt32(&wp.isClosed, 1)
+	wp.cancelFunc()
+	wp.wg.Wait()
+}
+
+// CloseGracefully - close worker pool and release all resources, wait until all task will be processed
+func (wp *WorkerPool) CloseGracefully() {
+	atomic.StoreInt32(&wp.isClosed, 1)
+	closed := make(chan struct{})
+	go func() {
+		wp.Wait()
+		close(closed)
+	}()
+
+	select {
+	case <-closed:
+	case <-time.After(wp.cfg.GracefulTimeout):
+	}
+
 	wp.cancelFunc()
 	wp.wg.Wait()
 }

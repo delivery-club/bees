@@ -10,6 +10,7 @@ type config struct {
 	Capacity         int64
 	KeepAliveTimeout time.Duration
 	TimeoutJitter    int // additional random timeout in ms
+	GracefulTimeout  time.Duration
 }
 
 // TaskProcessor - closure type for processing tasks
@@ -56,4 +57,14 @@ func (m capacity) apply(cfg *config) {
 // WithCapacity - add max capacity for worker pool
 func WithCapacity(m int64) Option {
 	return capacity(m)
+}
+
+type gracefulTimeout time.Duration
+
+func WithGracefulTimeout(t time.Duration) Option {
+	return gracefulTimeout(t)
+}
+
+func (t gracefulTimeout) apply(cfg *config) {
+	cfg.GracefulTimeout = time.Duration(t)
 }
