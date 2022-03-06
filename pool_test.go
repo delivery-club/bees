@@ -3,7 +3,6 @@ package bees
 import (
 	"context"
 	"log"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,7 +11,7 @@ import (
 
 const task = 1
 
-func TestWorkerPool_Close(t *testing.T) {
+func TestClose(t *testing.T) {
 	t.Parallel()
 
 	defer func() {
@@ -33,7 +32,7 @@ func TestWorkerPool_Close(t *testing.T) {
 	pool.Close()
 }
 
-func TestWorkerPool_ShutdownWithStacked(t *testing.T) {
+func TestShutdownWithStacked(t *testing.T) {
 	t.Parallel()
 
 	defer func() {
@@ -63,7 +62,7 @@ func TestWorkerPool_ShutdownWithStacked(t *testing.T) {
 	wg.Wait()
 }
 
-func TestPoolDefaultValues(t *testing.T) {
+func TestConfigDefaultValues(t *testing.T) {
 	t.Parallel()
 
 	defer func() {
@@ -80,7 +79,7 @@ func TestPoolDefaultValues(t *testing.T) {
 	}
 }
 
-func TestPoolRecoverAfterPanicOnSingleWorker(t *testing.T) {
+func TestRecoverAfterPanicOnSingleWorker(t *testing.T) {
 	t.Parallel()
 
 	defer func() {
@@ -89,15 +88,16 @@ func TestPoolRecoverAfterPanicOnSingleWorker(t *testing.T) {
 		}
 	}()
 
-	var wg sync.WaitGroup
+	checkCh := make(chan struct{})
 	pool := Create(context.Background(), func(ctx context.Context, i interface{}) {
-		defer wg.Done()
+		checkCh <- struct{}{}
 		panic("aaaaaa")
 	}, WithKeepAlive(time.Hour), WithJitter(10), WithCapacity(1))
 
-	wg.Add(1)
 	pool.Submit(task)
-	wg.Wait()
+	<-checkCh // check first execution
+	pool.Submit(task)
+	<-checkCh // check second try to execute
 }
 
 func TestWorkerExpiration(t *testing.T) {
@@ -140,7 +140,7 @@ func TestWait(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		for atomic.LoadInt64(stopper) == 0 {
-			runtime.Gosched()
+			time.Sleep(time.Microsecond)
 		}
 		for i := 0; i < testCount; i++ {
 			pool.Submit(task)
@@ -173,7 +173,7 @@ func TestOnPanic(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		for atomic.LoadInt64(stopper) == 0 {
-			runtime.Gosched()
+			time.Sleep(time.Microsecond)
 		}
 		for i := 0; i < testCount; i++ {
 			pool.Submit(task)
@@ -201,5 +201,27 @@ func TestOnPanic(t *testing.T) {
 
 	if pool.isClosed != 1 {
 		t.Fatalf("isClosed must be one")
+	}
+}
+
+func TestCloseGracefully(t *testing.T) {
+	t.Parallel()
+
+	counter := ptrOfInt64(0)
+	pool := Create(
+		context.Background(),
+		func(ctx context.Context, i interface{}) { time.Sleep(time.Second); atomic.AddInt64(counter, 1) },
+		WithJitter(1),
+		WithCapacity(100),
+		WithGracefulTimeout(5*time.Minute),
+	)
+
+	for i := 0; i < 100; i++ {
+		pool.SubmitAsync(i)
+	}
+	pool.CloseGracefully()
+
+	if atomic.LoadInt64(counter) != 100 {
+		t.Fatalf("counter not equal: %d", *counter)
 	}
 }
