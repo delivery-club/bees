@@ -212,8 +212,9 @@ func TestCloseGracefully(t *testing.T) {
 		context.Background(),
 		func(ctx context.Context, i interface{}) { time.Sleep(time.Second); atomic.AddInt64(counter, 1) },
 		WithJitter(1),
+		WithKeepAlive(time.Minute),
 		WithCapacity(100),
-		WithGracefulTimeout(5*time.Minute),
+		WithGracefulTimeout(time.Minute),
 	)
 
 	for i := 0; i < 100; i++ {
@@ -223,5 +224,31 @@ func TestCloseGracefully(t *testing.T) {
 
 	if atomic.LoadInt64(counter) != 100 {
 		t.Fatalf("counter not equal: %d", *counter)
+	}
+}
+func TestCloseGracefullyByTimeout(t *testing.T) {
+	t.Parallel()
+
+	counter := ptrOfInt64(0)
+	pool := Create(
+		context.Background(),
+		func(ctx context.Context, i interface{}) {
+			time.Sleep(time.Second)
+			atomic.AddInt64(counter, 1)
+		},
+		WithJitter(1),
+		WithKeepAlive(time.Minute),
+		WithCapacity(1),
+		WithGracefulTimeout(3*time.Second),
+	)
+
+	for i := 0; i < 100; i++ {
+		go pool.SubmitAsync(i)
+	}
+	start := time.Now()
+	pool.CloseGracefully()
+
+	if end := time.Since(start); end > 6*time.Second {
+		t.Fatalf("too big wait time: %s", end)
 	}
 }

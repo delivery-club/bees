@@ -15,9 +15,9 @@ const (
 )
 
 const (
-	poolSize = 500000
-	sleep    = 10
-	runTimes = 10000000
+	poolSize      = 500000
+	sleep         = 10
+	benchRunTimes = 10000000
 )
 
 func BenchmarkSemaphore(b *testing.B) {
@@ -26,8 +26,8 @@ func BenchmarkSemaphore(b *testing.B) {
 
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		wg.Add(runTimes)
-		for j := 0; j < runTimes; j++ {
+		wg.Add(benchRunTimes)
+		for j := 0; j < benchRunTimes; j++ {
 			sema <- struct{}{}
 			go func() {
 				demoFunc()
@@ -46,8 +46,8 @@ func BenchmarkGoroutines(b *testing.B) {
 	var wg sync.WaitGroup
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		wg.Add(runTimes)
-		for j := 0; j < runTimes; j++ {
+		wg.Add(benchRunTimes)
+		for j := 0; j < benchRunTimes; j++ {
 			go func() {
 				demoFunc()
 				wg.Done()
@@ -74,8 +74,8 @@ func BenchmarkWorkerPool(b *testing.B) {
 
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		wg.Add(runTimes)
-		for j := 0; j < runTimes; j++ {
+		wg.Add(benchRunTimes)
+		for j := 0; j < benchRunTimes; j++ {
 			p.Submit(task)
 		}
 	}
