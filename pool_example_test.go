@@ -16,6 +16,7 @@ func Example() {
 	pool.Submit(1)
 	pool.Submit(2)
 	pool.Submit(3)
+	pool.Wait()
 	// Output:
 	// 1
 	// 2

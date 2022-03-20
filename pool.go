@@ -53,6 +53,8 @@ func Create(ctx context.Context, processor TaskProcessor, opts ...Option) *Worke
 		config.Capacity = 1
 	}
 	ctx, cancel := context.WithCancel(ctx)
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
 
 	return &WorkerPool{
 		activeWorkers:   ptrOfInt64(0),
@@ -64,7 +66,7 @@ func Create(ctx context.Context, processor TaskProcessor, opts ...Option) *Worke
 		cfg:             &config,
 		shutdownCtx:     ctx,
 		cancelFunc:      cancel,
-		wg:              &sync.WaitGroup{},
+		wg:              wg,
 		logger:          log.Default(),
 		isClosed:        ptrOfInt64(0),
 	}
@@ -118,6 +120,7 @@ func (wp *WorkerPool) Wait() {
 func (wp *WorkerPool) Close() {
 	atomic.StoreInt64(wp.isClosed, 1)
 	wp.cancelFunc()
+	wp.wg.Add(-1)
 	wp.wg.Wait()
 }
 
@@ -136,6 +139,8 @@ func (wp *WorkerPool) CloseGracefully() {
 	}
 
 	wp.cancelFunc()
+
+	wp.wg.Add(-1)
 	wp.wg.Wait()
 }
 
