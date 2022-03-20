@@ -14,7 +14,7 @@ type WorkerPool struct {
 	activeWorkers   *int64
 	freeWorkers     *int64
 	taskCount       *int64
-	workersCapacity int64
+	workersCapacity *int64
 
 	process TaskProcessor
 	taskCh  chan interface{}
@@ -23,7 +23,7 @@ type WorkerPool struct {
 	shutdownCtx context.Context
 	cancelFunc  context.CancelFunc
 	wg          *sync.WaitGroup
-	isClosed    int32
+	isClosed    *int64
 
 	logger logger
 }
@@ -58,7 +58,7 @@ func Create(ctx context.Context, processor TaskProcessor, opts ...Option) *Worke
 		activeWorkers:   ptrOfInt64(0),
 		freeWorkers:     ptrOfInt64(0),
 		taskCount:       ptrOfInt64(0),
-		workersCapacity: config.Capacity,
+		workersCapacity: ptrOfInt64(config.Capacity),
 		process:         processor,
 		taskCh:          make(chan interface{}, 2*config.Capacity),
 		cfg:             &config,
@@ -66,6 +66,7 @@ func Create(ctx context.Context, processor TaskProcessor, opts ...Option) *Worke
 		cancelFunc:      cancel,
 		wg:              &sync.WaitGroup{},
 		logger:          log.Default(),
+		isClosed:        ptrOfInt64(0),
 	}
 }
 
@@ -76,7 +77,7 @@ func (wp *WorkerPool) SetLogger(logger logger) {
 
 // Submit - submit task to pool
 func (wp *WorkerPool) Submit(task interface{}) {
-	if wp.isClosed == 1 {
+	if atomic.LoadInt64(wp.isClosed) == 1 {
 		return
 	}
 
@@ -87,7 +88,7 @@ func (wp *WorkerPool) Submit(task interface{}) {
 
 // SubmitAsync - submit task to pool, for async better use this method
 func (wp *WorkerPool) SubmitAsync(task interface{}) {
-	if wp.isClosed == 1 {
+	if atomic.LoadInt64(wp.isClosed) == 1 {
 		return
 	}
 
@@ -113,8 +114,40 @@ func (wp *WorkerPool) Wait() {
 	}
 }
 
+// Close - close worker pool and release all resources, not processed tasks will be thrown away
+func (wp *WorkerPool) Close() {
+	atomic.StoreInt64(wp.isClosed, 1)
+	wp.cancelFunc()
+	wp.wg.Wait()
+}
+
+// CloseGracefully - close worker pool and release all resources, wait until all task will be processed
+func (wp *WorkerPool) CloseGracefully() {
+	atomic.StoreInt64(wp.isClosed, 1)
+	closed := make(chan struct{})
+	go func() {
+		wp.Wait()
+		close(closed)
+	}()
+
+	select {
+	case <-closed:
+	case <-time.After(wp.cfg.GracefulTimeout):
+	}
+
+	wp.cancelFunc()
+	wp.wg.Wait()
+}
+
+func (wp *WorkerPool) Scale(delta int64) {
+	atomic.AddInt64(wp.workersCapacity, delta)
+}
+
 func (wp *WorkerPool) retrieveWorker() {
-	if c := atomic.LoadInt64(wp.activeWorkers); c < wp.workersCapacity {
+	max := atomic.LoadInt64(wp.workersCapacity)
+	c := atomic.LoadInt64(wp.activeWorkers)
+
+	if c < max {
 		if atomic.CompareAndSwapInt64(wp.activeWorkers, c, c+1) {
 			wp.spawnWorker()
 		}
@@ -165,31 +198,6 @@ func (wp *WorkerPool) spawnWorker() {
 			ticker.Reset(timeout)
 		}
 	}()
-}
-
-// Close - close worker pool and release all resources, not processed tasks will be thrown away
-func (wp *WorkerPool) Close() {
-	atomic.StoreInt32(&wp.isClosed, 1)
-	wp.cancelFunc()
-	wp.wg.Wait()
-}
-
-// CloseGracefully - close worker pool and release all resources, wait until all task will be processed
-func (wp *WorkerPool) CloseGracefully() {
-	atomic.StoreInt32(&wp.isClosed, 1)
-	closed := make(chan struct{})
-	go func() {
-		wp.Wait()
-		close(closed)
-	}()
-
-	select {
-	case <-closed:
-	case <-time.After(wp.cfg.GracefulTimeout):
-	}
-
-	wp.cancelFunc()
-	wp.wg.Wait()
 }
 
 func ptrOfInt64(i int64) *int64 {
