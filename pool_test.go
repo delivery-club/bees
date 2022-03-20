@@ -257,3 +257,50 @@ func TestCloseGracefullyByTimeout(t *testing.T) {
 		t.Fatalf("too big wait time: %s", end)
 	}
 }
+
+func TestScale(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now()
+	defer func() {
+		if f := time.Since(start); f.Round(time.Second) > 3*time.Second {
+			t.Fatalf("too long execution: %s", f)
+		}
+	}()
+
+	pool := Create(context.Background(), func(ctx context.Context, task interface{}) {
+		time.Sleep(time.Second)
+	}, WithCapacity(1))
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		pool.Submit(nil)
+	}()
+
+	wg.Wait()
+	pool.Wait()
+
+	if wCap := atomic.LoadInt64(pool.workersCapacity); wCap != 1 {
+		t.Fatalf("wrong capacity: %d", wCap)
+	}
+
+	pool.Scale(100)
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			go pool.Submit(nil)
+		}
+	}()
+
+	if wCap := atomic.LoadInt64(pool.workersCapacity); wCap != 101 {
+		t.Fatalf("wrong capacity: %d", wCap)
+	}
+
+	wg.Wait()
+	pool.Wait()
+}
