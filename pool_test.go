@@ -303,4 +303,27 @@ func TestScale(t *testing.T) {
 
 	wg.Wait()
 	pool.Wait()
+
+	pool.Scale(-100)
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 2; i++ {
+			go pool.Submit(nil)
+		}
+	}()
+
+	if wCap := atomic.LoadInt64(pool.workersCapacity); wCap != 1 {
+		t.Fatalf("wrong capacity: %d", wCap)
+	}
+
+	aw := atomic.LoadInt64(pool.activeWorkers)
+	fw := atomic.LoadInt64(pool.freeWorkers)
+	if fw < 0 && aw < 0 {
+		t.Fatalf("must be grater than zero, because some workers still alive after decrease worker count")
+	}
+
+	wg.Wait()
+	pool.Wait()
 }
