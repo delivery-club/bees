@@ -2,6 +2,7 @@ package bees
 
 import (
 	"context"
+	"io"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -93,6 +94,7 @@ func TestRecoverAfterPanicOnSingleWorker(t *testing.T) {
 		checkCh <- struct{}{}
 		panic("aaaaaa")
 	}, WithKeepAlive(time.Hour), WithJitter(10), WithCapacity(1))
+	pool.SetLogger(log.New(io.Discard, "", 0))
 
 	pool.Submit(task)
 	<-checkCh // check first execution
@@ -118,7 +120,7 @@ func TestWorkerExpiration(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	if *pool.activeWorkers != 0 || *pool.freeWorkers != 0 {
+	if atomic.LoadInt64(pool.activeWorkers) != 0 || atomic.LoadInt64(pool.freeWorkers) != 0 {
 		t.Fatalf("active workers found")
 	}
 }
@@ -167,6 +169,7 @@ func TestOnPanic(t *testing.T) {
 		WithJitter(1),
 		WithCapacity(testCount),
 	)
+	pool.SetLogger(log.New(io.Discard, "", 0))
 
 	stopper := ptrOfInt64(0)
 	var wg sync.WaitGroup
@@ -185,21 +188,23 @@ func TestOnPanic(t *testing.T) {
 	wg.Wait()
 	pool.Wait()
 
-	if *pool.taskCount != 0 || len(pool.taskCh) != 0 {
-		t.Fatalf("unconsistent task count: taskCount: %d, channel len: %d", *pool.taskCount, len(pool.taskCh))
+	taskCount := atomic.LoadInt64(pool.taskCount)
+	taskChLen := len(pool.taskCh)
+	if taskCount != 0 || taskChLen != 0 {
+		t.Fatalf("unconsistent task count: taskCount: %d, channel len: %d", taskCount, taskChLen)
 	}
 
 	pool.Close()
 
-	if *pool.activeWorkers != 0 {
-		t.Fatalf("unconsistent active workers count: expected zero, actual: %d", *pool.activeWorkers)
+	if aw := atomic.LoadInt64(pool.activeWorkers); aw != 0 {
+		t.Fatalf("unconsistent active workers count: expected zero, actual: %d", pool.activeWorkers)
 	}
 
-	if *pool.freeWorkers != 0 {
-		t.Fatalf("unconsistent free workers count: expected zero, actual: %d", *pool.freeWorkers)
+	if fw := atomic.LoadInt64(pool.freeWorkers); fw != 0 {
+		t.Fatalf("unconsistent free workers count: expected zero, actual: %d", fw)
 	}
 
-	if pool.isClosed != 1 {
+	if atomic.LoadInt64(pool.isClosed) != 1 {
 		t.Fatalf("isClosed must be one")
 	}
 }
@@ -222,8 +227,8 @@ func TestCloseGracefully(t *testing.T) {
 	}
 	pool.CloseGracefully()
 
-	if atomic.LoadInt64(counter) != 100 {
-		t.Fatalf("counter not equal: %d", *counter)
+	if c := atomic.LoadInt64(counter); c != 100 {
+		t.Fatalf("counter not equal: %d", c)
 	}
 }
 func TestCloseGracefullyByTimeout(t *testing.T) {
@@ -248,7 +253,77 @@ func TestCloseGracefullyByTimeout(t *testing.T) {
 	start := time.Now()
 	pool.CloseGracefully()
 
-	if end := time.Since(start); end > 6*time.Second {
+	if end := time.Since(start); end.Round(time.Second) > 6*time.Second {
 		t.Fatalf("too big wait time: %s", end)
 	}
+}
+
+func TestScale(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now()
+	defer func() {
+		if f := time.Since(start); f.Round(time.Second) > 3*time.Second {
+			t.Fatalf("too long execution: %s", f)
+		}
+	}()
+
+	pool := Create(context.Background(), func(ctx context.Context, task interface{}) {
+		time.Sleep(time.Second)
+	}, WithCapacity(1))
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		pool.Submit(nil)
+	}()
+
+	wg.Wait()
+	pool.Wait()
+
+	if wCap := atomic.LoadInt64(pool.workersCapacity); wCap != 1 {
+		t.Fatalf("wrong capacity: %d", wCap)
+	}
+
+	pool.Scale(100)
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			go pool.Submit(nil)
+		}
+	}()
+
+	if wCap := atomic.LoadInt64(pool.workersCapacity); wCap != 101 {
+		t.Fatalf("wrong capacity: %d", wCap)
+	}
+
+	wg.Wait()
+	pool.Wait()
+
+	pool.Scale(-100)
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 2; i++ {
+			go pool.Submit(nil)
+		}
+	}()
+
+	if wCap := atomic.LoadInt64(pool.workersCapacity); wCap != 1 {
+		t.Fatalf("wrong capacity: %d", wCap)
+	}
+
+	aw := atomic.LoadInt64(pool.activeWorkers)
+	fw := atomic.LoadInt64(pool.freeWorkers)
+	if fw < 0 && aw < 0 {
+		t.Fatalf("must be grater than zero, because some workers still alive after decrease worker count")
+	}
+
+	wg.Wait()
+	pool.Wait()
 }

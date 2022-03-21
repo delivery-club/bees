@@ -4,7 +4,7 @@ lint:
 
 test:
 	@echo "Running tests..."
-	@go test ./... -cover -short -count=1
+	@go test ./... -cover -short -count=1 -race
 
 ci-lint: install-linter lint
 
