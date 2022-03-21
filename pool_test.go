@@ -253,7 +253,7 @@ func TestCloseGracefullyByTimeout(t *testing.T) {
 	start := time.Now()
 	pool.CloseGracefully()
 
-	if end := time.Since(start); end > 6*time.Second {
+	if end := time.Since(start); end.Round(time.Second) > 6*time.Second {
 		t.Fatalf("too big wait time: %s", end)
 	}
 }
