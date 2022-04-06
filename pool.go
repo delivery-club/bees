@@ -164,13 +164,11 @@ func (wp *WorkerPool) spawnWorker() {
 	wp.wg.Add(1)
 
 	go func() {
+		randomizer := rand.New(rand.NewSource(time.Now().UnixNano()))
 		// https://en.wikipedia.org/wiki/Exponential_backoff
 		// nolint:gosec
-		jitter := time.Millisecond * time.Duration(rand.Intn(wp.cfg.TimeoutJitter))
-		timeout := wp.cfg.KeepAliveTimeout + jitter
-
-		ticker := time.NewTicker(timeout)
-		defer ticker.Stop()
+		timer := time.NewTimer(wp.cfg.KeepAliveTimeout + time.Millisecond*time.Duration(randomizer.Intn(wp.cfg.TimeoutJitter)))
+		defer timer.Stop()
 
 		defer func() {
 			atomic.AddInt64(wp.freeWorkers, -1)
@@ -197,10 +195,10 @@ func (wp *WorkerPool) spawnWorker() {
 				atomic.AddInt64(wp.taskCount, -1)
 			case <-wp.shutdownCtx.Done():
 				return
-			case <-ticker.C:
+			case <-timer.C:
 				return
 			}
-			ticker.Reset(timeout)
+			timer.Reset(wp.cfg.KeepAliveTimeout + time.Millisecond*time.Duration(randomizer.Intn(wp.cfg.TimeoutJitter)))
 		}
 	}()
 }
