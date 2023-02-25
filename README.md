@@ -1,3 +1,4 @@
+# Project is archived. For actual code look at: https://github.com/peakle/bees
 # Bees
 
 [![codecov](https://codecov.io/gh/delivery-club/bees/branch/master/graph/badge.svg)](https://codecov.io/gh/delivery-club/bees)
